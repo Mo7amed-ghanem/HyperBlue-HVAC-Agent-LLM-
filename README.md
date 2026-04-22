@@ -6,36 +6,27 @@ Semi-production-grade multi-agent HVAC control simulation using **LangGraph** wi
 
 - Stateful LangGraph workflow (not basic chain-style agents)
 - Distinct nodes for planning, context/state, control decisioning, diagnostics, MPC-like oversight, safety/policy, and execution
+- **Gemini 2.5 Flash support** for Planning Agent (`gemini-2.5-flash`) with deterministic fallback when API/deps are unavailable
 - Diagnostics-aware routing: blocking failures halt execution before control application
 - Tool layer with LangChain-style tools
 - Mock building simulation with 3 rooms (campus scenario)
-- Detailed logging for debugging and traceability
-- Failure scenario coverage:
-  - Missing data
-  - Tool offline
-  - Invalid ranges
-  - Goal conflicts
-  - Role-based access denial
 
 ## Project Structure
 
 ```text
 .
 ├── agents/
-│   ├── context_state.py
-│   ├── diagnostics.py
-│   ├── hvac_control.py
-│   ├── mpc_oversight.py
-│   ├── planning.py
-│   └── safety_policy.py
+├── config/
+│   └── settings.py
 ├── environment/
-│   └── simulator.py
-├── graph/
-│   └── bms_graph.py
-├── tools/
-│   └── bms_tools.py
 ├── examples/
-│   └── run_demo.py
+├── graph/
+├── llm/
+│   └── gemini_client.py
+├── tools/
+├── .env
+├── .env.example
+├── requirements.txt
 └── schemas.py
 ```
 
@@ -47,23 +38,35 @@ Semi-production-grade multi-agent HVAC control simulation using **LangGraph** wi
 pip install -U -r requirements.txt
 ```
 
-2. Run demo:
+2. Configure environment variables in `.env`:
+
+```bash
+GOOGLE_API_KEY=your_google_api_key_here
+PLANNER_MODEL=gemini-2.5-flash
+HVAC_MODEL=gemini-2.5-flash
+```
+
+3. Run demo:
 
 ```bash
 python examples/run_demo.py
 ```
 
+## Behavior with/without Gemini
+
+- If `GOOGLE_API_KEY` + `langchain-google-genai` are available, Planning Agent uses Gemini 2.5 Flash to generate structured orchestration tasks.
+- If not available, system automatically falls back to deterministic planning logic (no crash).
+
 ## Scenario Coverage in Demo
 
-- **Normal operation** (staff role, valid targets)
-- **Constraint violation stress** (high heat/CO2, policy+oversight moderation)
-- **Role-based restriction** (student role denied control)
-- **Tool offline diagnostics** (pre-execution blocking)
-- **Missing telemetry** (`DATA_MISSING` blocks execution)
+- Normal operation
+- Constraint violation stress
+- Role-based restriction
+- Tool offline diagnostics
+- Missing telemetry
 
 ## Notes for Real BMS / EnergyPlus Extension
 
 - Replace `environment/simulator.py` with live telemetry adapters.
 - Keep tool signatures stable in `tools/bms_tools.py`.
 - Replace simplified MPC (`agents/mpc_oversight.py`) with predictive controller while keeping same input/output model.
-- Add richer comfort model (PMV/PPD), thermal dynamics, and forecast integration.
