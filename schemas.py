@@ -21,10 +21,10 @@ class ErrorType(str, Enum):
 
 class RoomState(BaseModel):
     room_id: str
-    indoor_temp_c: float
-    co2_ppm: int
-    occupancy: int
-    hvac_mode: Literal["off", "cooling", "heating", "ventilation"]
+    indoor_temp_c: Optional[float] = None
+    co2_ppm: Optional[int] = None
+    occupancy: Optional[int] = None
+    hvac_mode: Literal["off", "cooling", "heating", "ventilation"] = "off"
 
 
 class EnvironmentState(BaseModel):

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from agents.context_state import context_state_agent
 from agents.diagnostics import feasibility_diagnostics_agent
 from agents.hvac_control import hvac_control_agent
 from agents.mpc_oversight import mpc_oversight_agent
@@ -12,6 +13,7 @@ from agents.planning import planning_agent
 from agents.safety_policy import safety_policy_agent
 from environment.simulator import MockBmsEnvironment
 from schemas import (
+    DiagnosticsReport,
     EnvironmentState,
     ExecutionResult,
     GoalRequest,
@@ -44,15 +46,8 @@ def build_bms_graph(env: MockBmsEnvironment):
         return {"planner_task": task.model_dump()}
 
     def context_node(state: BmsGraphState):
-        logger.info("Context/state agent: collecting structured telemetry")
-        tools = BmsToolbox(env, state["user_role"].value)
-        tool_failures = []
-        for tool_name in ["get_room_state", "get_outdoor_weather", "get_occupancy", "get_co2_level"]:
-            if not tools.check_tool_status.invoke({"tool_name": tool_name}):
-                tool_failures.append(tool_name)
-
-        env_state = env.get_full_state()
-        return {"env_state": env_state.model_dump(), "tool_failures": tool_failures}
+        env_state, unavailable = context_state_agent(env=env, role=state["user_role"])
+        return {"env_state": env_state.model_dump(), "tool_failures": unavailable}
 
     def hvac_control_node(state: BmsGraphState):
         env_state = EnvironmentState.model_validate(state["env_state"])
@@ -67,6 +62,16 @@ def build_bms_graph(env: MockBmsEnvironment):
             unavailable_tools=state.get("tool_failures", []),
         )
         return {"diagnostics": report.model_dump()}
+
+    def diagnostics_route(state: BmsGraphState) -> Literal["blocked", "continue"]:
+        report = DiagnosticsReport.model_validate(state["diagnostics"])
+        return "continue" if report.ok else "blocked"
+
+    def blocked_execution_node(state: BmsGraphState):
+        report = DiagnosticsReport.model_validate(state["diagnostics"])
+        details = "; ".join(f"{issue.error_type}: {issue.detail}" for issue in report.issues)
+        result = ExecutionResult(success=False, message=f"Diagnostics blocked execution: {details}")
+        return {"execution": result.model_dump()}
 
     def mpc_node(state: BmsGraphState):
         result = mpc_oversight_agent(
@@ -113,6 +118,7 @@ def build_bms_graph(env: MockBmsEnvironment):
     graph.add_node("context_state", context_node)
     graph.add_node("hvac_control", hvac_control_node)
     graph.add_node("diagnostics", diagnostics_node)
+    graph.add_node("blocked_execution", blocked_execution_node)
     graph.add_node("mpc_oversight", mpc_node)
     graph.add_node("safety_policy", safety_node)
     graph.add_node("execution", execution_node)
@@ -121,7 +127,15 @@ def build_bms_graph(env: MockBmsEnvironment):
     graph.add_edge("planning", "context_state")
     graph.add_edge("context_state", "hvac_control")
     graph.add_edge("hvac_control", "diagnostics")
-    graph.add_edge("diagnostics", "mpc_oversight")
+    graph.add_conditional_edges(
+        "diagnostics",
+        diagnostics_route,
+        {
+            "continue": "mpc_oversight",
+            "blocked": "blocked_execution",
+        },
+    )
+    graph.add_edge("blocked_execution", END)
     graph.add_edge("mpc_oversight", "safety_policy")
     graph.add_edge("safety_policy", "execution")
     graph.add_edge("execution", END)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, Optional
 
 from schemas import EnvironmentState, RoomState
 
@@ -11,8 +11,7 @@ from schemas import EnvironmentState, RoomState
 class MockBmsEnvironment:
     """Mock campus HVAC environment.
 
-    This is intentionally simple and deterministic so it can be replaced by
-    EnergyPlus or IoT telemetry adapters later without changing graph contracts.
+    Deterministic and easily replaceable by EnergyPlus/IoT adapters.
     """
 
     tool_health: Dict[str, bool] = field(
@@ -42,10 +41,10 @@ class MockBmsEnvironment:
             rooms=[
                 RoomState(
                     room_id=room,
-                    indoor_temp_c=data["temp"],
-                    co2_ppm=data["co2"],
-                    occupancy=data["occupancy"],
-                    hvac_mode=data["mode"],
+                    indoor_temp_c=data.get("temp"),
+                    co2_ppm=data.get("co2"),
+                    occupancy=data.get("occupancy"),
+                    hvac_mode=data.get("mode", "off"),
                 )
                 for room, data in self.rooms.items()
             ],
@@ -55,11 +54,11 @@ class MockBmsEnvironment:
     def get_room_state(self, room_id: str) -> Dict:
         return self.rooms.get(room_id, {})
 
-    def get_occupancy(self, room_id: str) -> int | None:
+    def get_occupancy(self, room_id: str) -> Optional[int]:
         room = self.rooms.get(room_id)
         return room.get("occupancy") if room else None
 
-    def get_co2_level(self, room_id: str) -> int | None:
+    def get_co2_level(self, room_id: str) -> Optional[int]:
         room = self.rooms.get(room_id)
         return room.get("co2") if room else None
 
@@ -68,11 +67,13 @@ class MockBmsEnvironment:
 
     def apply_targets(self, zone_targets: Dict[str, float], fan_speed_pct: int, fresh_air_pct: int) -> str:
         for zone, target in zone_targets.items():
-            if zone in self.rooms:
+            if zone in self.rooms and self.rooms[zone].get("temp") is not None:
                 current = self.rooms[zone]["temp"]
                 self.rooms[zone]["temp"] = round(current + (target - current) * 0.4, 2)
                 self.rooms[zone]["mode"] = "cooling" if target < current else "heating"
-                self.rooms[zone]["co2"] = max(450, int(self.rooms[zone]["co2"] - fresh_air_pct * 1.2))
+                current_co2 = self.rooms[zone].get("co2")
+                if current_co2 is not None:
+                    self.rooms[zone]["co2"] = max(450, int(current_co2 - fresh_air_pct * 1.2))
         return f"Applied {len(zone_targets)} zones @ fan={fan_speed_pct}% fresh_air={fresh_air_pct}%"
 
     def set_tool_health(self, tool_name: str, is_online: bool) -> None:
@@ -80,3 +81,7 @@ class MockBmsEnvironment:
 
     def check_tool_status(self, tool_name: str) -> bool:
         return self.tool_health.get(tool_name, False)
+
+    def inject_missing_data(self, room_id: str, field_name: str) -> None:
+        if room_id in self.rooms:
+            self.rooms[room_id][field_name] = None

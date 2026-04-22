@@ -5,7 +5,8 @@ Semi-production-grade multi-agent HVAC control simulation using **LangGraph** wi
 ## Highlights
 
 - Stateful LangGraph workflow (not basic chain-style agents)
-- Distinct nodes for planning, context acquisition, control decisioning, diagnostics, MPC-like oversight, and safety/policy
+- Distinct nodes for planning, context/state, control decisioning, diagnostics, MPC-like oversight, safety/policy, and execution
+- Diagnostics-aware routing: blocking failures halt execution before control application
 - Tool layer with LangChain-style tools
 - Mock building simulation with 3 rooms (campus scenario)
 - Detailed logging for debugging and traceability
@@ -21,6 +22,7 @@ Semi-production-grade multi-agent HVAC control simulation using **LangGraph** wi
 ```text
 .
 ├── agents/
+│   ├── context_state.py
 │   ├── diagnostics.py
 │   ├── hvac_control.py
 │   ├── mpc_oversight.py
@@ -42,7 +44,7 @@ Semi-production-grade multi-agent HVAC control simulation using **LangGraph** wi
 1. Install dependencies:
 
 ```bash
-pip install -U langgraph langchain-core pydantic
+pip install -U -r requirements.txt
 ```
 
 2. Run demo:
@@ -54,8 +56,10 @@ python examples/run_demo.py
 ## Scenario Coverage in Demo
 
 - **Normal operation** (staff role, valid targets)
-- **Constraint violation** (aggressive settings clamped/blocked)
+- **Constraint violation stress** (high heat/CO2, policy+oversight moderation)
 - **Role-based restriction** (student role denied control)
+- **Tool offline diagnostics** (pre-execution blocking)
+- **Missing telemetry** (`DATA_MISSING` blocks execution)
 
 ## Notes for Real BMS / EnergyPlus Extension
 

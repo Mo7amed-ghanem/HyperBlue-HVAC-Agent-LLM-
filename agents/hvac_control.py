@@ -24,40 +24,45 @@ def _air_quality_score(co2: int) -> float:
     return max(0.0, 1 - max(0, co2 - 600) / 1200)
 
 
+def _normalized_weights(goal: GoalRequest) -> Dict[str, float]:
+    total = max(1e-9, sum(goal.weights.values()))
+    return {k: v / total for k, v in goal.weights.items()}
+
+
 def hvac_control_agent(goal: GoalRequest, env_state: EnvironmentState) -> HvacTargets:
     logger.info("HVAC control agent: computing high-level targets")
 
+    w = _normalized_weights(goal)
     targets: Dict[str, float] = {}
-    all_co2 = []
+    co2_values = []
 
     for room in env_state.rooms:
-        all_co2.append(room.co2_ppm)
+        if room.indoor_temp_c is None or room.co2_ppm is None:
+            continue
+
+        co2_values.append(room.co2_ppm)
         comfort = _comfort_score(room.indoor_temp_c)
         air_quality = _air_quality_score(room.co2_ppm)
 
         proposed = room.indoor_temp_c
         if goal.improve_comfort:
-            proposed -= 1.5 if room.indoor_temp_c > IDEAL_TEMP else -0.5
+            proposed += -1.5 if room.indoor_temp_c > IDEAL_TEMP else 0.5
         if goal.optimize_energy and env_state.outdoor_temp_c < room.indoor_temp_c:
             proposed += 0.4
 
         energy = _energy_penalty(proposed, env_state.outdoor_temp_c)
-        j = (
-            goal.weights["comfort"] * comfort
-            + goal.weights["energy"] * (1 - energy)
-            + goal.weights["air_quality"] * air_quality
-        )
+        j = w["comfort"] * comfort + w["energy"] * (1 - energy) + w["air_quality"] * air_quality
 
         if j < 0.45 and goal.reduce_co2:
             proposed -= 0.3
 
         targets[room.room_id] = round(proposed, 2)
 
-    avg_co2 = sum(all_co2) / len(all_co2)
+    avg_co2 = sum(co2_values) / len(co2_values) if co2_values else 600
     fan_speed_pct = 75 if avg_co2 > MAX_CO2 else 55
     fresh_air_pct = 40 if avg_co2 > MAX_CO2 else 22
 
-    rationale = "Computed from weighted objective J=w1*comfort+w2*energy+w3*air_quality over room states"
+    rationale = "Computed from normalized weighted objective J=w1*comfort+w2*energy+w3*air_quality"
     return HvacTargets(
         zone_targets_c=targets,
         fan_speed_pct=fan_speed_pct,

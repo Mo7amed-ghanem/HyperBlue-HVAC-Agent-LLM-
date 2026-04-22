@@ -36,22 +36,22 @@ if __name__ == "__main__":
         weights={"comfort": 0.5, "energy": 0.25, "air_quality": 0.25},
     )
 
-    # 1) Normal operation
     env_normal = MockBmsEnvironment()
     run_case("Normal operation (Staff)", env_normal, base_goal, UserRole.STAFF)
 
-    # 2) Constraint violation case (aggressive comfort, high overrides/clamping expected)
     env_violation = MockBmsEnvironment()
     env_violation.rooms["ENGR-101"]["temp"] = 34.5
     env_violation.rooms["CHEM-110"]["co2"] = 1650
     run_case("Constraint violation stress (Admin)", env_violation, deepcopy(base_goal), UserRole.ADMIN)
 
-    # 3) Role restriction
     env_student = MockBmsEnvironment()
     run_case("Role-based restriction (Student)", env_student, deepcopy(base_goal), UserRole.STUDENT)
 
-    # 4) Tool offline failure scenario
     env_tool_offline = MockBmsEnvironment()
     env_tool_offline.set_tool_health("get_co2_level", False)
     env_tool_offline.set_tool_health("apply_mpc_targets", False)
     run_case("Tool offline diagnostics", env_tool_offline, deepcopy(base_goal), UserRole.ADMIN)
+
+    env_missing_data = MockBmsEnvironment()
+    env_missing_data.inject_missing_data("LIB-204", "co2")
+    run_case("Missing telemetry blocks execution", env_missing_data, deepcopy(base_goal), UserRole.ADMIN)

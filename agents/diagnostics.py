@@ -8,6 +8,9 @@ from schemas import DiagnosticIssue, DiagnosticsReport, EnvironmentState, ErrorT
 logger = logging.getLogger(__name__)
 
 
+BLOCKING_ERRORS = {ErrorType.DATA_MISSING, ErrorType.TOOL_UNAVAILABLE, ErrorType.INVALID_RANGE}
+
+
 def feasibility_diagnostics_agent(
     goal: GoalRequest,
     env_state: EnvironmentState,
@@ -26,19 +29,19 @@ def feasibility_diagnostics_agent(
         )
 
     for room in env_state.rooms:
-        if room.indoor_temp_c is None or room.co2_ppm is None:
+        if room.indoor_temp_c is None or room.co2_ppm is None or room.occupancy is None:
             issues.append(
                 DiagnosticIssue(
                     error_type=ErrorType.DATA_MISSING,
-                    detail=f"Missing data for room {room.room_id}",
+                    detail=f"Missing required telemetry for room {room.room_id}",
                 )
             )
 
-    if goal.optimize_energy and goal.improve_comfort and any(c > 1400 for c in [r.co2_ppm for r in env_state.rooms]):
+    if goal.optimize_energy and goal.improve_comfort and any((r.co2_ppm or 0) > 1400 for r in env_state.rooms):
         issues.append(
             DiagnosticIssue(
                 error_type=ErrorType.GOAL_CONFLICT,
-                detail="High CO2 with aggressive energy savings may reduce ventilation quality",
+                detail="High CO2 with aggressive energy savings can conflict with ventilation needs",
             )
         )
 
@@ -51,4 +54,5 @@ def feasibility_diagnostics_agent(
                 )
             )
 
-    return DiagnosticsReport(ok=len(issues) == 0, issues=issues)
+    has_blocking = any(issue.error_type in BLOCKING_ERRORS for issue in issues)
+    return DiagnosticsReport(ok=not has_blocking, issues=issues)
